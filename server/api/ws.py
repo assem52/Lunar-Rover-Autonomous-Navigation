@@ -14,6 +14,8 @@ async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     manager.clients.append(ws)
 
+    manager.sim['mode'] = 'idle'
+    connection_time = asyncio.get_event_loop().time()
     await manager.sync_state_initial()
     await ws.send_text(json.dumps(manager.static_payload()))
 
@@ -22,21 +24,32 @@ async def ws_endpoint(ws: WebSocket):
             raw = await ws.receive_text()
             cmd = json.loads(raw)
             action = cmd.get('action')
+            if action:
+                print(f"[*] WebSocket Action Received: {action}")
 
-            if action == 'train':
-                manager.cancel_task()
-                await asyncio.sleep(0.1)
-                manager.agent.epsilon = max(manager.agent.epsilon, 0.1)
-                manager.task = asyncio.create_task(manager.training_loop())
+            # Safety check: Ignore auto-commands from browser cache in the first 1.5s
+            if action in ('train', 'start_training', 'run', 'start_run'):
+                if asyncio.get_event_loop().time() - connection_time < 1.5:
+                    print(f"[!] Blocked potential auto-start action: {action}")
+                    continue
 
-            elif action == 'run':
-                manager.cancel_task()
-                await asyncio.sleep(0.1)
-                manager.task = asyncio.create_task(manager.eval_loop())
+            if action == 'start_training' or action == 'train':
+                await manager.start_training()
 
-            elif action == 'stop':
-                manager.cancel_task()
-                await manager.emit_event('stopped', mode='idle')
+            elif action == 'start_run' or action == 'run':
+                await manager.start_run()
+
+            elif action == 'stop_simulation' or action == 'end' or action == 'stop':
+                await manager.stop_simulation()
+
+            elif action == 'pause':
+                await manager.pause_simulation()
+
+            elif action == 'resume':
+                await manager.resume_simulation()
+
+            elif action == 'stop': # Fallback
+                await manager.stop_simulation()
 
             elif action == 'save':
                 name = cmd.get('name', manager.sim['model_name'])
@@ -81,9 +94,23 @@ async def ws_endpoint(ws: WebSocket):
                 except Exception:
                     await manager.emit_event('error', message='Invalid speed value.')
 
+            elif action == 'set_personality':
+                name = cmd.get('name')
+                if not name:
+                    await manager.emit_event('error', message='Personality name cannot be empty.')
+                    continue
+                if manager.set_personality(name):
+                    await manager.broadcast(manager.static_payload())
+                    await manager.emit_event('info', message=f"Personality changed to: {name.capitalize()}")
+                else:
+                    await manager.emit_event('error', message=f"Unknown personality: {name}")
+
             else:
                 await manager.emit_event('error', message=f"Unknown action: {action}")
 
     except WebSocketDisconnect:
         if ws in manager.clients:
             manager.clients.remove(ws)
+        if len(manager.clients) == 0:
+            if manager.sim['mode'] in ('training', 'running'):
+                await manager.pause_simulation()

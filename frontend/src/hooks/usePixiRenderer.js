@@ -291,16 +291,29 @@ export function usePixiRenderer(hostRef) {
           if (!showTrail || points.length < 2) return
           
           const g = new PIXI.Graphics()
+          const edges = {}
           
           for (let i = 0; i < points.length - 1; i++) {
               const p1 = points[i]
               const p2 = points[i+1]
-              
               const dx = p2.x - p1.x
               const dy = p2.y - p1.y
-              const dist = Math.hypot(dx, dy)
-              if (dist < 1) continue
+              if (Math.hypot(dx, dy) < 1) continue
 
+              const key1 = `${Math.round(p1.x)},${Math.round(p1.y)}->${Math.round(p2.x)},${Math.round(p2.y)}`
+              const key2 = `${Math.round(p2.x)},${Math.round(p2.y)}->${Math.round(p1.x)},${Math.round(p1.y)}`
+              
+              if (!edges[key1] && !edges[key2]) {
+                  edges[key1] = { p1, p2, bidir: false }
+              } else if (edges[key2]) {
+                  edges[key2].bidir = true
+              }
+          }
+          
+          for (const key in edges) {
+              const { p1, p2, bidir } = edges[key]
+              const dx = p2.x - p1.x
+              const dy = p2.y - p1.y
               const angle = Math.atan2(dy, dx)
               const cx = (p1.x + p2.x) / 2
               const cy = (p1.y + p2.y) / 2
@@ -316,15 +329,31 @@ export function usePixiRenderer(hostRef) {
               const cos = Math.cos(angle)
               const sin = Math.sin(angle)
               
-              const pts = [
-                -len/2, -width/2,  // bottom left of stem
-                len/2 - headLen, -width/2, // top left of stem
-                len/2 - headLen, -headWidth/2, // left of arrowhead
-                len/2, 0, // tip of arrowhead
-                len/2 - headLen, headWidth/2, // right of arrowhead
-                len/2 - headLen, width/2, // top right of stem
-                -len/2, width/2 // bottom right of stem
-              ]
+              let pts = []
+              if (bidir) {
+                  pts = [
+                      -len/2 + headLen, -width/2,
+                      len/2 - headLen, -width/2,
+                      len/2 - headLen, -headWidth/2,
+                      len/2, 0,
+                      len/2 - headLen, headWidth/2,
+                      len/2 - headLen, width/2,
+                      -len/2 + headLen, width/2,
+                      -len/2 + headLen, headWidth/2,
+                      -len/2, 0,
+                      -len/2 + headLen, -headWidth/2
+                  ]
+              } else {
+                  pts = [
+                    -len/2, -width/2, 
+                    len/2 - headLen, -width/2, 
+                    len/2 - headLen, -headWidth/2, 
+                    len/2, 0, 
+                    len/2 - headLen, headWidth/2, 
+                    len/2 - headLen, width/2, 
+                    -len/2, width/2 
+                  ]
+              }
               
               const transformed = []
               for (let j = 0; j < pts.length; j += 2) {

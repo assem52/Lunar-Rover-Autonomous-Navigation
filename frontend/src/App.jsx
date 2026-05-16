@@ -50,10 +50,18 @@ export default function App() {
     }
     if (s.__event === 'stopped') {
       setMode('idle')
+      trailRef.current = []
+      if (rendererRef.current) rendererRef.current.updateTrail([], 'idle', showTrail)
       return
     }
 
-    if (s.mode) setMode(s.mode)
+    if (s.mode) {
+      setMode(s.mode)
+      if (s.mode === 'idle') {
+        trailRef.current = []
+        if (rendererRef.current) rendererRef.current.updateTrail([], 'idle', showTrail)
+      }
+    }
     if (s.models) setModels(s.models)
     if (s.maps) setMaps(s.maps)
     if (s.model_name) {
@@ -64,6 +72,10 @@ export default function App() {
     if (s.perf) setWsStats({ kb: s.perf.ws_kb_per_sec || 0, msg: s.perf.ws_msgs_per_sec || 0 })
     setState((prev) => ({ ...prev, ...s }))
 
+    if (s.craters && s.rocks && rendererRef.current) {
+      rendererRef.current.drawTerrain(s.craters, s.rocks)
+    }
+
     if (s.episode !== undefined && s.episode !== lastEpisodeRef.current) {
       if (lastEpisodeRef.current >= 0 && s.total_reward !== undefined && s.episode > 0) {
         setRewards((prev) => [...prev.slice(-119), { episode: lastEpisodeRef.current, reward: s.total_reward }])
@@ -73,17 +85,22 @@ export default function App() {
         setRewards([])
         setSuccess({ total: 0, wins: 0 })
       }
-      if (s.craters && s.rocks && rendererRef.current) rendererRef.current.drawTerrain(s.craters, s.rocks)
       trailRef.current = []
       lastEpisodeRef.current = s.episode
     }
 
     if (s.target_pos && s.rover_pos && rendererRef.current) {
       rendererRef.current.drawActors(s.rover_pos, s.target_pos)
-      const p = rendererRef.current.toPixel(s.rover_pos)
-      trailRef.current.push({ ...p })
-      if (trailRef.current.length > 80) trailRef.current.shift()
-      rendererRef.current.updateTrail(trailRef.current, s.mode || mode, showTrail)
+      if (s.rover_pos && s.mode === 'training' && showTrail) {
+        const p = rendererRef.current.toPixel(s.rover_pos)
+        const lastP = trailRef.current[trailRef.current.length - 1]
+        
+        // Only add if position changed
+        if (!lastP || Math.hypot(p.x - lastP.x, p.y - lastP.y) > 1) {
+          trailRef.current = [...trailRef.current.slice(-199), p] // Increased limit to 200 for better visibility
+          rendererRef.current.updateTrail(trailRef.current, s.mode, showTrail)
+        }
+      }
     }
 
     fpsRef.current.frames += 1
@@ -120,6 +137,20 @@ export default function App() {
     if (action) safeSend({ action })
   }
 
+  useEffect(() => {
+    if (state.mode && state.mode !== 'idle' && showMenu) {
+      setShowMenu(false)
+    }
+  }, [state.mode, showMenu])
+
+  // Fix: Redraw terrain and actors when the renderer becomes ready
+  useEffect(() => {
+    if (rendererRef.current && state.craters && state.rocks) {
+      rendererRef.current.drawTerrain(state.craters, state.rocks)
+      rendererRef.current.drawActors(state.rover_pos, state.target_pos)
+    }
+  }, [rendererRef.current, state.craters, state.rocks, state.rover_pos, state.target_pos])
+
   return (
     <>
       <TopBar
@@ -148,32 +179,30 @@ export default function App() {
               step={state.step ?? 0}
               epsilon={Number(state.epsilon ?? 0).toFixed(3)}
               outcome={state.last_outcome || '-'}
-              models={models}
-              modelName={modelName}
-              selectedModel={selectedModel}
               maps={maps}
               selectedMap={selectedMap}
               showTrail={showTrail}
               speedLabelText={speedText}
+              personality={state.personality || 'explorer'}
+              availablePersonalities={state.available_personalities || []}
               onTrain={() => safeSend({ action: 'train' })}
               onRun={() => safeSend({ action: 'run' })}
               onStop={() => safeSend({ action: 'stop' })}
+              onPause={() => safeSend({ action: 'pause' })}
+              onResume={() => safeSend({ action: 'resume' })}
               onNewMap={() => safeSend({ action: 'new_map' })}
               onToggleTrail={() => {
                 const next = !showTrail
                 setShowTrail(next)
                 if (rendererRef.current) rendererRef.current.updateTrail(trailRef.current, mode, next)
               }}
-              onLoadModel={(name) => {
-                setSelectedModel(name)
-                safeSend({ action: 'load_model', name })
-              }}
               onLoadMap={(name) => {
                 setSelectedMap(name)
                 safeSend({ action: 'load_map', name })
               }}
-              onModelName={setModelName}
-              onSaveModel={() => modelName.trim() && safeSend({ action: 'save', name: modelName.trim() }, 'Cannot save: server offline.')}
+              onPersonality={(name) => {
+                safeSend({ action: 'set_personality', name })
+              }}
               onSpeed={(v) => {
                 setSpeedText(speedLabel(v))
                 safeSend({ action: 'set_speed', value: v })

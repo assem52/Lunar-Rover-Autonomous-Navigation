@@ -143,16 +143,77 @@ button:active { transform: translateY(1px); }
   top: 20px; 
   z-index: 4; 
   width: 320px; 
-  height: 180px; 
+  height: 240px; 
   background: var(--surface-glass); 
   backdrop-filter: blur(8px);
   border: 1px solid var(--border); 
   border-radius: var(--radius); 
   padding: 12px;
   box-shadow: var(--shadow-md);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
 }
-#chart-float canvas { width: 100% !important; height: calc(100% - 24px) !important; }
-#chart-title { font-size: 0.7rem; color: var(--muted); letter-spacing: 1px; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; }
+
+#chart-float.fullscreen {
+  inset: 20px;
+  width: auto;
+  height: auto;
+  z-index: 100;
+  background: rgba(5, 8, 10, 0.98);
+}
+
+#chart-float canvas { width: 100% !important; flex: 1 !important; }
+#chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+#chart-title { font-size: 0.7rem; color: var(--muted); letter-spacing: 1px; font-weight: 600; text-transform: uppercase; margin: 0; }
+
+.chart-controls {
+  display: flex;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.chart-control-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chart-control-group label {
+  font-size: 0.6rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.chart-control-group input {
+  width: 45px;
+  padding: 4px 6px;
+  font-size: 0.7rem;
+  text-align: center;
+  background: rgba(0,0,0,0.3);
+}
+
+#btn-expand {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  color: var(--cyan);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+#btn-expand:hover {
+  background: rgba(0,212,255,0.1);
+  border-color: var(--cyan);
+}
 
 /* Game Menu Overlay */
 #menu-screen { 

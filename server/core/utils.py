@@ -9,9 +9,9 @@ def extract_terrain(grid):
     for i in range(grid.shape[0]):
         for j in range(grid.shape[1]):
             if grid[i, j] == 1:
-                craters.append([i, j])
+                craters.append([j, i])
             elif grid[i, j] == 2:
-                rocks.append([i, j])
+                rocks.append([j, i])
     return craters, rocks
 
 

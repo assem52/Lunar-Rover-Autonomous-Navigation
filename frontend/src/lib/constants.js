@@ -1,4 +1,4 @@
-export const GRID_SIZE = 15
+export const GRID_SIZE = 10
 export const MODE_LABELS = {
   idle: 'IDLE',
   training: 'TRAINING',
