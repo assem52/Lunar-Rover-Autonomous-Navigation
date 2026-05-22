@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -13,7 +14,8 @@ class MapStore:
 
     def list_names(self) -> list[str]:
         files = glob.glob(os.path.join(self.maps_dir, '*.json'))
-        return sorted([os.path.splitext(os.path.basename(f))[0] for f in files])
+        names = [os.path.splitext(os.path.basename(f))[0] for f in files]
+        return sorted(names, key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)])
 
     def path_for(self, name: str) -> str:
         safe = sanitize_name(name, 'map')
@@ -46,7 +48,8 @@ class ModelStore:
 
     def list_names(self) -> list[str]:
         files = glob.glob(os.path.join(self.models_dir, '*.json'))
-        return sorted([os.path.splitext(os.path.basename(f))[0] for f in files])
+        names = [os.path.splitext(os.path.basename(f))[0] for f in files]
+        return sorted(names, key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)])
 
     def path_for(self, name: str) -> str:
         safe = sanitize_name(name, 'model')

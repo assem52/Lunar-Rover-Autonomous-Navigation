@@ -5,45 +5,40 @@ import numpy as np
 from ai.core.config import QLearningConfig
 from ai.core.persistence import build_q_table, load_q_table, save_q_table
 from ai.core.state_encoder import encode_lunar_state
+from envs.lunar_rover import REWARD_CRATER, REWARD_ROCK_HIT, REWARD_STEP
 
 
 class QLearningAgent:
-    PERSONALITIES = {
-        "explorer": {
-            "lr": 0.1, "gamma": 0.99, "epsilon": 0.4, "decay": 0.999, "min_eps": 0.05,
-            "rock_mult": 1.0, "crater_mult": 1.0, "step_mult": 0.5
-        },
-        "cautious": {
-            "lr": 0.05, "gamma": 0.8, "epsilon": 0.1, "decay": 0.99, "min_eps": 0.01,
-            "rock_mult": 5.0, "crater_mult": 10.0, "step_mult": 1.0
-        },
-        "sprinter": {
-            "lr": 0.2, "gamma": 0.9, "epsilon": 0.2, "decay": 0.995, "min_eps": 0.02,
-            "rock_mult": 1.0, "crater_mult": 2.0, "step_mult": 5.0
-        },
-        "clumsy": {
-            "lr": 0.1, "gamma": 0.5, "epsilon": 0.8, "decay": 1.0, "min_eps": 0.5,
-            "rock_mult": 1.0, "crater_mult": 1.0, "step_mult": 1.0
-        }
+    # Maps personality name → QLearningConfig factory method name
+    PERSONALITIES: dict[str, str] = {
+        "explorer": "explorer",
+        "cautious":  "cautious",
+        "sprinter":  "sprinter",
+        "clumsy":    "clumsy",
     }
 
     def __init__(self, action_size: int, personality: str = "explorer"):
         self.action_size = action_size
         self.personality_name = personality if personality in self.PERSONALITIES else "explorer"
-        p = self.PERSONALITIES[self.personality_name]
-        
-        self.lr = p["lr"]
-        self.gamma = p["gamma"]
-        self.epsilon = p["epsilon"]
-        self.epsilon_decay = p["decay"]
-        self.min_epsilon = p["min_eps"]
-        
+
+        # Build config from the named preset
+        preset_name = self.PERSONALITIES[self.personality_name]
+        cfg: QLearningConfig = getattr(QLearningConfig, preset_name)()
+        self._cfg = cfg
+
+        # Expose flat attributes so the rest of the code stays unchanged
+        self.lr            = cfg.learning_rate
+        self.gamma         = cfg.discount_factor
+        self.epsilon       = cfg.epsilon
+        self.epsilon_decay = cfg.epsilon_decay
+        self.min_epsilon   = cfg.min_epsilon
+
         self.multipliers = {
-            "rock": p["rock_mult"],
-            "crater": p["crater_mult"],
-            "step": p["step_mult"]
+            "rock":   cfg.rock_mult,
+            "crater": cfg.crater_mult,
+            "step":   cfg.step_mult,
         }
-        
+
         self.q_table = build_q_table(action_size)
 
     def _state_key(self, state):
@@ -56,16 +51,16 @@ class QLearningAgent:
         return int(np.argmax(self.q_table[key]))
 
     def learn(self, state, action, reward, next_state, done):
-        # Subjective reward scaling based on personality
+        # Scale reward subjectively based on personality
         shaped_reward = reward
-        if reward == -1: # Step
+        if reward == REWARD_STEP:          # plain step cost
             shaped_reward *= self.multipliers["step"]
-        elif reward <= -100: # Crater
+        elif reward <= REWARD_CRATER:      # fell into crater (terminal)
             shaped_reward *= self.multipliers["crater"]
-        elif reward <= -5: # Rock or Out of bounds
+        elif reward <= REWARD_ROCK_HIT:    # hit a rock / out of bounds
             shaped_reward *= self.multipliers["rock"]
 
-        state_key = self._state_key(state)
+        state_key      = self._state_key(state)
         next_state_key = self._state_key(next_state)
 
         target = shaped_reward
@@ -79,18 +74,21 @@ class QLearningAgent:
             self.epsilon *= self.epsilon_decay
             self.epsilon = max(self.min_epsilon, self.epsilon)
 
-    def save(self, filepath, map_data=None):
-        save_q_table(filepath, self.q_table, self.epsilon, map_data)
+    def save(self, filepath: str, map_data=None, trained_eps: int = 0, reward_history: list = None) -> None:
+        save_q_table(filepath, self.q_table, self.epsilon, map_data, trained_eps, reward_history)
 
-    def load(self, filepath):
-        q_table, epsilon, _ = load_q_table(filepath, self.action_size)
-        if epsilon is None:
+    def load(self, filepath: str) -> bool:
+        try:
+            q_table, epsilon, map_data, trained_eps, reward_history = load_q_table(filepath, self.action_size)
+            self.q_table = q_table
+            if epsilon is not None:
+                self.epsilon = epsilon
+            self.trained_eps = trained_eps
+            self.reward_history = reward_history
+            return True
+        except:
             return False
-        self.q_table = q_table
-        self.epsilon = epsilon
-        return True
 
     def reset_memory(self):
         self.q_table = build_q_table(self.action_size)
-        p = self.PERSONALITIES[self.personality_name]
-        self.epsilon = p["epsilon"]
+        self.epsilon = self._cfg.epsilon  # reset to the preset's initial epsilon

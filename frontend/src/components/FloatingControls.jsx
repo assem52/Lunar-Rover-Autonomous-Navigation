@@ -48,7 +48,7 @@ export default function FloatingControls({
       <div className="row"><span className="label">STEP</span><span>{step}</span><span className="label" style={{ marginLeft: 'auto' }}>EPS</span><span>{epsilon}</span></div>
       <div className="row"><span className="label">OUTCOME</span><span>{outcome}</span><span className="label" style={{ marginLeft: 'auto' }}>MODE</span><span>{MODE_LABELS[mode] || mode.toUpperCase()}</span></div>
       <div className="row"><span className="label">SPEED</span><span style={{ marginLeft: 'auto' }}>{speedLabelText}</span></div>
-      <input type="range" min="0" max="0.9" step="0.01" defaultValue="0.12" dir="rtl" onInput={(e) => onSpeed(parseFloat(e.target.value))} />
+      <input type="range" min="0" max="0.9" step="0.01" defaultValue="0.12" dir="rtl" onChange={(e) => onSpeed(parseFloat(e.target.value))} />
     </div>
   )
 }

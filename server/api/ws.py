@@ -1,12 +1,116 @@
 import asyncio
 import json
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from server import settings
 from server.core.container import manager
 
+log = logging.getLogger(__name__)
+
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Command handlers — add new actions here without touching ws_endpoint()
+# ---------------------------------------------------------------------------
+
+async def _handle_train(cmd):
+    await manager.start_training()
+
+async def _handle_run(cmd):
+    await manager.start_run()
+
+async def _handle_stop(cmd):
+    await manager.stop_simulation()
+
+async def _handle_pause(cmd):
+    await manager.pause_simulation()
+
+async def _handle_resume(cmd):
+    await manager.resume_simulation()
+
+async def _handle_save(cmd):
+    name = cmd.get('name', manager.sim['model_name'])
+    if not name:
+        await manager.emit_event('error', message='Model name cannot be empty.')
+        return
+    saved_name = manager.save_model(name)
+    await manager.emit_event(
+        'saved',
+        trained_eps=manager.sim['trained_eps'],
+        models=manager.sim.get('models', []),
+        model_name=saved_name,
+    )
+
+async def _handle_load_model(cmd):
+    name = cmd.get('name')
+    if not name:
+        await manager.emit_event('error', message='Select a model to load.')
+        return
+    ok, err = await manager.load_model(name)
+    if not ok:
+        await manager.emit_event('error', message=err)
+    else:
+        await manager.broadcast(manager.static_payload())
+
+async def _handle_new_map(cmd):
+    manager.cancel_task()
+    map_name = await manager.create_new_map()
+    await manager.broadcast(manager.static_payload())
+    await manager.emit_event('info', message=f"New map created: {map_name}")
+
+async def _handle_load_map(cmd):
+    name = cmd.get('name')
+    if not name:
+        await manager.emit_event('error', message='Select a map to load.')
+        return
+    ok = await manager.load_map(name)
+    if not ok:
+        await manager.emit_event('error', message=f"Map '{name}' not found.")
+    else:
+        await manager.broadcast(manager.static_payload())
+
+async def _handle_set_speed(cmd):
+    try:
+        actual = manager.set_speed(float(cmd.get('value', settings.DEFAULT_SPEED)))
+        await manager.emit_event('info', message=f'Speed set to {actual:.2f}s')
+    except Exception:
+        await manager.emit_event('error', message='Invalid speed value.')
+
+async def _handle_set_personality(cmd):
+    name = cmd.get('name')
+    if not name:
+        await manager.emit_event('error', message='Personality name cannot be empty.')
+        return
+    if manager.set_personality(name):
+        await manager.broadcast(manager.static_payload())
+        await manager.emit_event('info', message=f"Personality changed to: {name.capitalize()}")
+    else:
+        await manager.emit_event('error', message=f"Unknown personality: {name}")
+
+
+# Canonical action name → handler (aliases handled separately below)
+_HANDLERS = {
+    'train':           _handle_train,
+    'start_training':  _handle_train,
+    'run':             _handle_run,
+    'start_run':       _handle_run,
+    'stop':            _handle_stop,
+    'stop_simulation': _handle_stop,
+    'end':             _handle_stop,
+    'pause':           _handle_pause,
+    'resume':          _handle_resume,
+    'save':            _handle_save,
+    'load_model':      _handle_load_model,
+    'new_map':         _handle_new_map,
+    'load_map':        _handle_load_map,
+    'set_speed':       _handle_set_speed,
+    'set_personality': _handle_set_personality,
+}
+
+# Actions that must not fire in the first 1.5 s after connection
+_AUTOSTART_GUARD = frozenset({'train', 'start_training', 'run', 'start_run'})
 
 
 @router.websocket('/ws')
@@ -24,87 +128,20 @@ async def ws_endpoint(ws: WebSocket):
             raw = await ws.receive_text()
             cmd = json.loads(raw)
             action = cmd.get('action')
-            if action:
-                print(f"[*] WebSocket Action Received: {action}")
+            if not action:
+                continue
 
-            # Safety check: Ignore auto-commands from browser cache in the first 1.5s
-            if action in ('train', 'start_training', 'run', 'start_run'):
+            log.debug("WebSocket action received: %s", action)
+
+            # Safety guard: ignore auto-start commands right after connection
+            if action in _AUTOSTART_GUARD:
                 if asyncio.get_event_loop().time() - connection_time < 1.5:
-                    print(f"[!] Blocked potential auto-start action: {action}")
+                    log.warning("Blocked potential auto-start action: %s", action)
                     continue
 
-            if action == 'start_training' or action == 'train':
-                await manager.start_training()
-
-            elif action == 'start_run' or action == 'run':
-                await manager.start_run()
-
-            elif action == 'stop_simulation' or action == 'end' or action == 'stop':
-                await manager.stop_simulation()
-
-            elif action == 'pause':
-                await manager.pause_simulation()
-
-            elif action == 'resume':
-                await manager.resume_simulation()
-
-            elif action == 'stop': # Fallback
-                await manager.stop_simulation()
-
-            elif action == 'save':
-                name = cmd.get('name', manager.sim['model_name'])
-                if not name:
-                    await manager.emit_event('error', message='Model name cannot be empty.')
-                    continue
-                saved_name = manager.save_model(name)
-                await manager.emit_event('saved', trained_eps=manager.sim['trained_eps'], models=manager.sim.get('models', []), model_name=saved_name)
-
-            elif action == 'load_model':
-                name = cmd.get('name')
-                if not name:
-                    await manager.emit_event('error', message='Select a model to load.')
-                    continue
-                ok, err = await manager.load_model(name)
-                if not ok:
-                    await manager.emit_event('error', message=err)
-                else:
-                    await manager.broadcast(manager.static_payload())
-
-            elif action == 'new_map':
-                manager.cancel_task()
-                map_name = await manager.create_new_map()
-                await manager.broadcast(manager.static_payload())
-                await manager.emit_event('info', message=f"New map created: {map_name}")
-
-            elif action == 'load_map':
-                name = cmd.get('name')
-                if not name:
-                    await manager.emit_event('error', message='Select a map to load.')
-                    continue
-                ok = await manager.load_map(name)
-                if not ok:
-                    await manager.emit_event('error', message=f"Map '{name}' not found.")
-                else:
-                    await manager.broadcast(manager.static_payload())
-
-            elif action == 'set_speed':
-                try:
-                    actual = manager.set_speed(float(cmd.get('value', settings.DEFAULT_SPEED)))
-                    await manager.emit_event('info', message=f'Speed set to {actual:.2f}s')
-                except Exception:
-                    await manager.emit_event('error', message='Invalid speed value.')
-
-            elif action == 'set_personality':
-                name = cmd.get('name')
-                if not name:
-                    await manager.emit_event('error', message='Personality name cannot be empty.')
-                    continue
-                if manager.set_personality(name):
-                    await manager.broadcast(manager.static_payload())
-                    await manager.emit_event('info', message=f"Personality changed to: {name.capitalize()}")
-                else:
-                    await manager.emit_event('error', message=f"Unknown personality: {name}")
-
+            handler = _HANDLERS.get(action)
+            if handler:
+                await handler(cmd)
             else:
                 await manager.emit_event('error', message=f"Unknown action: {action}")
 
@@ -114,3 +151,5 @@ async def ws_endpoint(ws: WebSocket):
         if len(manager.clients) == 0:
             if manager.sim['mode'] in ('training', 'running'):
                 await manager.pause_simulation()
+
+

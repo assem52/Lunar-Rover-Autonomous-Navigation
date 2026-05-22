@@ -33,6 +33,7 @@ export default function App() {
   const trailRef = useRef([])
   const lastEpisodeRef = useRef(-1)
   const fpsRef = useRef({ frames: 0, start: performance.now() })
+  const speedTimeoutRef = useRef(null)
 
   const onState = useCallback((s) => {
     if (s.__event === 'saved') {
@@ -70,6 +71,11 @@ export default function App() {
     }
     if (s.map_name) setSelectedMap(s.map_name)
     if (s.perf) setWsStats({ kb: s.perf.ws_kb_per_sec || 0, msg: s.perf.ws_msgs_per_sec || 0 })
+    if (s.reward_history) {
+      const startEp = Math.max(0, s.trained_eps - s.reward_history.length)
+      const hist = s.reward_history.map((reward, idx) => ({ episode: startEp + idx, reward }))
+      setRewards(hist)
+    }
     setState((prev) => ({ ...prev, ...s }))
 
     if (s.craters && s.rocks && rendererRef.current) {
@@ -85,19 +91,23 @@ export default function App() {
         setRewards([])
         setSuccess({ total: 0, wins: 0 })
       }
-      trailRef.current = []
       lastEpisodeRef.current = s.episode
+    }
+    
+    if (s.step === 0) {
+      trailRef.current = []
+      if (rendererRef.current) rendererRef.current.updateTrail([], s.mode, showTrail)
     }
 
     if (s.target_pos && s.rover_pos && rendererRef.current) {
       rendererRef.current.drawActors(s.rover_pos, s.target_pos)
       if (s.rover_pos && s.mode === 'training' && showTrail) {
-        const p = rendererRef.current.toPixel(s.rover_pos)
-        const lastP = trailRef.current[trailRef.current.length - 1]
+        const pGrid = s.rover_pos
+        const lastPGrid = trailRef.current[trailRef.current.length - 1]
         
         // Only add if position changed
-        if (!lastP || Math.hypot(p.x - lastP.x, p.y - lastP.y) > 1) {
-          trailRef.current = [...trailRef.current.slice(-199), p] // Increased limit to 200 for better visibility
+        if (!lastPGrid || pGrid[0] !== lastPGrid[0] || pGrid[1] !== lastPGrid[1]) {
+          trailRef.current = [...trailRef.current.slice(-199), pGrid]
           rendererRef.current.updateTrail(trailRef.current, s.mode, showTrail)
         }
       }
@@ -205,7 +215,10 @@ export default function App() {
               }}
               onSpeed={(v) => {
                 setSpeedText(speedLabel(v))
-                safeSend({ action: 'set_speed', value: v })
+                if (speedTimeoutRef.current) clearTimeout(speedTimeoutRef.current)
+                speedTimeoutRef.current = setTimeout(() => {
+                  safeSend({ action: 'set_speed', value: v })
+                }, 100)
               }}
             />
           )}

@@ -4,6 +4,19 @@ import numpy as np
 from enum import Enum
 
 
+# ---------------------------------------------------------------------------
+# Reward constants — edit here to reshape behaviour globally
+# ---------------------------------------------------------------------------
+REWARD_STEP        = -1    # Penalty per step (encourages shorter paths)
+REWARD_ROCK_HIT    = -5    # Extra penalty for bumping into a rock
+REWARD_OUT_BOUNDS  = -5    # Penalty for trying to leave the grid
+REWARD_CRATER      = -100  # Terminal penalty for falling into a crater
+REWARD_TARGET      = +100  # Terminal reward for reaching the goal
+REWARD_TIMEOUT     = -50   # Extra penalty when energy runs out
+
+INITIAL_ENERGY     = 100   # Steps available per episode
+
+
 class Actions(Enum):
     right = 0
     up = 1
@@ -111,52 +124,45 @@ class LunarRoverEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        
+
         # Reset rover to its original starting location
         self._agent_location = self._start_location.copy()
-        
-        self.energy = 100.0
 
-
+        self.energy = float(INITIAL_ENERGY)
 
         return self._get_obs(), self._get_info()
 
     def step(self, action):
         direction = self._action_to_direction[action]
         new_location = self._agent_location + direction
-        
-        # Check bounds
+
+        # Check bounds — don't move, apply penalty
         if not (0 <= new_location[0] < self.size and 0 <= new_location[1] < self.size):
-            # Out of bounds: penalty, don't move
-            return self._get_obs(), -5, False, False, self._get_info()
+            return self._get_obs(), REWARD_OUT_BOUNDS, False, False, self._get_info()
 
         terrain_at_new = self.grid[new_location[1], new_location[0]]
 
-        reward = -1 # Small penalty for each step to encourage fast arrival
+        reward = REWARD_STEP  # Small penalty per step to encourage shorter paths
         terminated = False
-        
+
         if terrain_at_new == TerrainType.ROCK.value:
-            # Hit a rock, don't move, penalty
-            reward -= 5
+            # Hit a rock — don't move, apply extra penalty
+            reward += REWARD_ROCK_HIT
         else:
-            # Move
+            # Move to new cell
             self._agent_location = new_location
-            
+
             if terrain_at_new == TerrainType.CRATER.value:
-                # Fell in crater, terminal state
-                reward = -100
+                reward = REWARD_CRATER
                 terminated = True
             elif np.array_equal(self._agent_location, self._target_location):
-                # Reached target!
-                reward = 100
+                reward = REWARD_TARGET
                 terminated = True
 
-        self.energy -= 1 # Consume energy
+        self.energy -= 1  # Consume one unit of energy per step
         truncated = self.energy <= 0
         if truncated:
-             reward -= 50
-
-
+            reward += REWARD_TIMEOUT
 
         return self._get_obs(), reward, terminated, truncated, self._get_info()
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { GRID_SIZE } from '../lib/constants'
+import { GRID_SIZE, loadServerConfig } from '../lib/constants'
 
 export function usePixiRenderer(hostRef) {
   const apiRef = useRef(null)
@@ -11,6 +11,7 @@ export function usePixiRenderer(hostRef) {
     let cleanup = null
 
     ;(async () => {
+      await loadServerConfig()           // fetch grid_size from server first
       const PIXI = await import('pixi.js')
       if (disposed || !hostRef.current) return
 
@@ -286,16 +287,16 @@ export function usePixiRenderer(hostRef) {
           roverTargetPx = toPixel(roverPos)
           if (roverPx.x === 0 && roverPx.y === 0) roverPx = { ...roverTargetPx }
         },
-        updateTrail(points, mode, showTrail) {
+        updateTrail(gridPoints, mode, showTrail) {
           trailLayer.removeChildren()
-          if (!showTrail || points.length < 2) return
+          if (!showTrail || gridPoints.length < 2) return
           
           const g = new PIXI.Graphics()
           const edges = {}
           
-          for (let i = 0; i < points.length - 1; i++) {
-              const p1 = points[i]
-              const p2 = points[i+1]
+          for (let i = 0; i < gridPoints.length - 1; i++) {
+              const p1 = toPixel(gridPoints[i])
+              const p2 = toPixel(gridPoints[i+1])
               const dx = p2.x - p1.x
               const dy = p2.y - p1.y
               if (Math.hypot(dx, dy) < 1) continue
