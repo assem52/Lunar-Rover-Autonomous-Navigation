@@ -136,9 +136,13 @@ export default function App() {
           trainedMapPreviews={trainedMapPreviews}
           trainedModels={trainedModels}
           trainedModelPreviews={trainedModelPreviews}
-          onTrain={() => {
+          onTrain={(cfg) => {
             navigateTo('game')
-            safeSend({ action: 'train_new_map' })
+            safeSend({
+              action: 'train_new_map',
+              exploration: cfg?.exploration,
+              exploitation: cfg?.exploitation
+            })
           }}
           onRunTrainedModel={(name) => {
             if (!name) return

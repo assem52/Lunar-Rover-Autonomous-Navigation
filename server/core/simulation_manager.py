@@ -402,6 +402,18 @@ class SimulationManager:
         self.sim["speed"] = clamp_speed(float(value))
         return self.sim["speed"]
 
+    def set_training_balance(self, exploration: float | None = None, exploitation: float | None = None) -> None:
+        if exploration is None and exploitation is None:
+            return
+        if exploration is None and exploitation is not None:
+            exploration = 1.0 - float(exploitation)
+        if exploration is None:
+            return
+        exploration = max(0.01, min(0.99, float(exploration)))
+        self.agent.epsilon = exploration
+        self.agent.min_epsilon = max(0.01, min(exploration, exploration * 0.15))
+        self.sim["epsilon"] = round(self.agent.epsilon, 4)
+
     # ------------------------------------------------------------------
     # Simulation control (delegate loops to SimRunner)
     # ------------------------------------------------------------------
@@ -417,8 +429,9 @@ class SimulationManager:
         self.task = asyncio.create_task(self._runner.training_loop())
         await self.broadcast(self.step_payload())
 
-    async def train_on_new_map(self) -> str:
+    async def train_on_new_map(self, exploration: float | None = None, exploitation: float | None = None) -> str:
         map_name = await self.create_new_map()
+        self.set_training_balance(exploration=exploration, exploitation=exploitation)
         await self.start_training()
         return map_name
 

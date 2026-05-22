@@ -19,7 +19,9 @@ async def _handle_train(cmd):
     await manager.start_training()
 
 async def _handle_train_new_map(cmd):
-    map_name = await manager.train_on_new_map()
+    exploration = cmd.get('exploration')
+    exploitation = cmd.get('exploitation')
+    map_name = await manager.train_on_new_map(exploration=exploration, exploitation=exploitation)
     await manager.emit_event('info', message=f"Training started on new map: {map_name}")
 
 async def _handle_run(cmd):

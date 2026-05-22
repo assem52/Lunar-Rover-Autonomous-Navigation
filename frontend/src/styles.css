@@ -362,6 +362,22 @@ button:active { transform: translateY(1px); }
   background: rgba(255,255,255,0.03);
   text-align: center;
 }
+.train-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0 14px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+}
+.train-row {
+  display: flex;
+  justify-content: space-between;
+  color: #cfe0f6;
+  font-size: 0.9rem;
+}
 .menu-btn { 
   padding: 14px 16px; 
   font-size: 0.9rem; 
