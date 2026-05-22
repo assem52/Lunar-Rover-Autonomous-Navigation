@@ -85,6 +85,7 @@ class QLearningAgent:
                 self.epsilon = epsilon
             self.trained_eps = trained_eps
             self.reward_history = reward_history
+            self.map_data = map_data
             return True
         except:
             return False

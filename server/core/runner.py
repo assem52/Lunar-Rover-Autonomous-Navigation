@@ -4,7 +4,6 @@ SimRunner — isolated training and run loops.
 Responsible for:
 - Executing one episode step-by-step (training / inference).
 - Applying outcome labels (success / crater / timeout).
-- Auto-saving checkpoints during training.
 
 SimRunner is intentionally stateless beyond what it receives from
 SimulationManager; it writes results back through the shared ``sim``
@@ -125,33 +124,7 @@ class SimRunner:
 
             sim["total_reward"] = 0.0
 
-            # Auto-save on improvement
-            await self._maybe_autosave(final_reward)
-
-            # Periodic checkpoint every 100 episodes
-            if sim["trained_eps"] % 100 == 0:
-                model_name = f"{sim['map_name']}_model"
-                m.save_model(model_name)
-                await self._emit(
-                    "saved",
-                    trained_eps=sim["trained_eps"],
-                    models=sim.get("models", []),
-                    model_name=model_name,
-                )
-
         await self._emit("stopped", mode=sim["mode"])
-
-    async def _maybe_autosave(self, final_reward: float) -> None:
-        m = self._m
-        sim = self._sim
-        if final_reward > m.best_reward and sim["episode"] > 5:
-            m.best_reward = final_reward
-            model_name = f"{sim['map_name']}_model"
-            m.save_model(model_name)
-            await self._emit(
-                "info",
-                message=f"Model updated for {sim['map_name']} (Reward: {m.best_reward:.1f})",
-            )
 
     # ------------------------------------------------------------------
     # Run (inference) loop

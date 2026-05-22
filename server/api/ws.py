@@ -18,11 +18,35 @@ router = APIRouter()
 async def _handle_train(cmd):
     await manager.start_training()
 
+async def _handle_train_new_map(cmd):
+    map_name = await manager.train_on_new_map()
+    await manager.emit_event('info', message=f"Training started on new map: {map_name}")
+
 async def _handle_run(cmd):
     await manager.start_run()
 
+async def _handle_run_trained_map(cmd):
+    name = cmd.get('name')
+    ok, err = await manager.run_trained_map(name)
+    if not ok:
+        await manager.emit_event('error', message=err)
+
+async def _handle_run_trained_model(cmd):
+    name = cmd.get('name')
+    ok, err = await manager.run_trained_model(name)
+    if not ok:
+        await manager.emit_event('error', message=err)
+
 async def _handle_stop(cmd):
     await manager.stop_simulation()
+
+async def _handle_stop_and_save(cmd):
+    name = cmd.get('name')
+    if not name:
+        await manager.emit_event('error', message='Model name cannot be empty.')
+        return
+    saved_name = await manager.stop_and_save(name)
+    await manager.emit_event('saved', model_name=saved_name, models=manager.sim.get('models', []))
 
 async def _handle_pause(cmd):
     await manager.pause_simulation()
@@ -93,10 +117,14 @@ async def _handle_set_personality(cmd):
 # Canonical action name → handler (aliases handled separately below)
 _HANDLERS = {
     'train':           _handle_train,
+    'train_new_map':   _handle_train_new_map,
     'start_training':  _handle_train,
     'run':             _handle_run,
     'start_run':       _handle_run,
+    'run_trained_map': _handle_run_trained_map,
+    'run_trained_model': _handle_run_trained_model,
     'stop':            _handle_stop,
+    'stop_and_save':   _handle_stop_and_save,
     'stop_simulation': _handle_stop,
     'end':             _handle_stop,
     'pause':           _handle_pause,

@@ -18,12 +18,12 @@ export default function App() {
 
   const [showTrail, setShowTrail] = useState(true)
   const [mode, setMode] = useState('idle')
-  const [models, setModels] = useState([])
-  const [maps, setMaps] = useState([])
+  const [trainedMaps, setTrainedMaps] = useState([])
+  const [trainedMapPreviews, setTrainedMapPreviews] = useState({})
+  const [trainedModels, setTrainedModels] = useState([])
+  const [trainedModelPreviews, setTrainedModelPreviews] = useState({})
   const [state, setState] = useState({ rover_pos: [0, GRID_SIZE - 1], target_pos: [-1, -1] })
   const [speedText, setSpeedText] = useState('Normal')
-  const [selectedModel, setSelectedModel] = useState('')
-  const [selectedMap, setSelectedMap] = useState('')
   const [status, setStatus] = useState({ kind: 'info', message: '' })
 
   const trailRef = useRef([])
@@ -70,10 +70,10 @@ export default function App() {
         if (rendererRef.current) rendererRef.current.updateTrail([], 'idle', showTrail)
       }
     }
-    if (s.models) setModels(s.models)
-    if (s.maps) setMaps(s.maps)
-    if (s.model_name) setSelectedModel(s.model_name)
-    if (s.map_name) setSelectedMap(s.map_name)
+    if (s.trained_maps) setTrainedMaps(s.trained_maps)
+    if (s.trained_map_previews) setTrainedMapPreviews(s.trained_map_previews)
+    if (s.trained_models) setTrainedModels(s.trained_models)
+    if (s.trained_model_previews) setTrainedModelPreviews(s.trained_model_previews)
     setState((prev) => ({ ...prev, ...s }))
 
     if (s.craters && s.rocks && rendererRef.current) {
@@ -132,25 +132,19 @@ export default function App() {
     return (
       <>
         <GameMenuPage
-          models={models}
-          selectedModel={selectedModel}
-          maps={maps}
-          selectedMap={selectedMap}
-          onSelectModel={(name) => {
-            setSelectedModel(name)
-            if (name) safeSend({ action: 'load_model', name })
+          trainedMaps={trainedMaps}
+          trainedMapPreviews={trainedMapPreviews}
+          trainedModels={trainedModels}
+          trainedModelPreviews={trainedModelPreviews}
+          onTrain={() => {
+            navigateTo('game')
+            safeSend({ action: 'train_new_map' })
           }}
-          onSelectMap={(name) => {
-            setSelectedMap(name)
-            if (name) safeSend({ action: 'load_map', name })
+          onRunTrainedModel={(name) => {
+            if (!name) return
+            navigateTo('game')
+            safeSend({ action: 'run_trained_model', name })
           }}
-          onTrain={() => start('train')}
-          onRun={() => start('run')}
-          onNewMap={() => {
-            safeSend({ action: 'new_map' })
-            start()
-          }}
-          onOpen={() => start()}
         />
         <ConnectionOverlay connected={connected} />
       </>
@@ -162,8 +156,6 @@ export default function App() {
       hostRef={hostRef}
       status={status}
       mode={mode}
-      maps={maps}
-      selectedMap={selectedMap}
       showTrail={showTrail}
       speedText={speedText}
       onMenu={() => {
@@ -172,18 +164,22 @@ export default function App() {
       }}
       onTrain={() => safeSend({ action: 'train' })}
       onRun={() => safeSend({ action: 'run' })}
-      onStop={() => safeSend({ action: 'stop' })}
+      onStop={() => {
+        if (mode === 'training' || mode === 'paused_training') {
+          const suggested = state.map_name ? `${state.map_name}_model` : 'my_model'
+          const name = window.prompt('Enter model name before stopping training:', suggested)
+          if (!name || !name.trim()) return
+          safeSend({ action: 'stop_and_save', name: name.trim() })
+          return
+        }
+        safeSend({ action: 'stop' })
+      }}
       onPause={() => safeSend({ action: 'pause' })}
       onResume={() => safeSend({ action: 'resume' })}
-      onNewMap={() => safeSend({ action: 'new_map' })}
       onToggleTrail={() => {
         const next = !showTrail
         setShowTrail(next)
         if (rendererRef.current) rendererRef.current.updateTrail(trailRef.current, mode, next)
-      }}
-      onLoadMap={(name) => {
-        setSelectedMap(name)
-        safeSend({ action: 'load_map', name })
       }}
       onSpeed={(v) => {
         setSpeedText(speedLabel(v))

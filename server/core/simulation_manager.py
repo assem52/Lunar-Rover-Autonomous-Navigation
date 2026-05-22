@@ -14,6 +14,7 @@ What it does NOT do:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import threading
@@ -144,6 +145,32 @@ class SimulationManager:
     def _refresh_catalogs(self) -> None:
         self.sim["models"] = self.model_store.list_names()
         self.sim["maps"]   = self.map_store.list_names()
+        trained_maps = [
+            map_name for map_name in self.sim["maps"]
+            if f"{map_name}_model" in self.sim["models"]
+        ]
+        self.sim["trained_maps"] = trained_maps
+        previews: dict[str, dict[str, Any]] = {}
+        for map_name in trained_maps:
+            map_data = self.map_store.load(map_name)
+            if map_data:
+                previews[map_name] = map_data
+        self.sim["trained_map_previews"] = previews
+        trained_models: list[str] = []
+        trained_model_previews: dict[str, dict[str, Any]] = {}
+        for model_name in self.sim["models"]:
+            model_path = self.model_store.path_for(model_name)
+            try:
+                with open(model_path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                map_data = payload.get("map_data")
+                if map_data and isinstance(map_data, dict) and "grid" in map_data:
+                    trained_models.append(model_name)
+                    trained_model_previews[model_name] = map_data
+            except Exception:
+                continue
+        self.sim["trained_models"] = trained_models
+        self.sim["trained_model_previews"] = trained_model_previews
 
     # ------------------------------------------------------------------
     # State sync
@@ -185,6 +212,10 @@ class SimulationManager:
             "map_name":                self.sim.get("map_name", ""),
             "models":                  self.sim.get("models", []),
             "maps":                    self.sim.get("maps", []),
+            "trained_maps":            self.sim.get("trained_maps", []),
+            "trained_map_previews":    self.sim.get("trained_map_previews", {}),
+            "trained_models":          self.sim.get("trained_models", []),
+            "trained_model_previews":  self.sim.get("trained_model_previews", {}),
             "perf":                    self.sim.get("perf", {}),
         }
 
@@ -254,8 +285,6 @@ class SimulationManager:
 
     def cancel_task(self) -> None:
         if self.task and not self.task.done():
-            if self.sim["mode"] == "training":
-                self.save_model(f"{self.sim['map_name']}_model")
             self.sim["mode"] = "idle"
             self.task.cancel()
             self.task = None
@@ -319,7 +348,9 @@ class SimulationManager:
 
         def _save():
             try:
-                self.agent.save(path, trained_eps=self.sim["trained_eps"], reward_history=self.sim["reward_history"])
+                map_data = self.get_current_map_data()
+                map_data["map_name"] = self.sim.get("map_name", "")
+                self.agent.save(path, map_data=map_data, trained_eps=self.sim["trained_eps"], reward_history=self.sim["reward_history"])
                 log.info("Model saved → %s", path)
             except Exception as exc:
                 log.error("Model save failed: %s", exc)
@@ -336,6 +367,11 @@ class SimulationManager:
             return False, f"Model '{safe_name}' not found or invalid."
 
         self.cancel_task()
+        map_data = getattr(self.agent, "map_data", None)
+        if map_data and isinstance(map_data, dict) and {"target", "start", "grid"}.issubset(map_data.keys()):
+            self.env.set_terrain(map_data["target"], map_data["start"], map_data["grid"])
+            if map_data.get("map_name"):
+                self.sim["map_name"] = map_data["map_name"]
         self.sim.update({
             "model_name":  safe_name,
             "trained_eps": getattr(self.agent, "trained_eps", 0),
@@ -381,6 +417,33 @@ class SimulationManager:
         self.task = asyncio.create_task(self._runner.training_loop())
         await self.broadcast(self.step_payload())
 
+    async def train_on_new_map(self) -> str:
+        map_name = await self.create_new_map()
+        await self.start_training()
+        return map_name
+
+    async def run_trained_map(self, map_name: str) -> tuple[bool, str]:
+        if not map_name:
+            return False, "Select a trained map."
+        model_name = f"{map_name}_model"
+        if model_name not in self.model_store.list_names():
+            return False, f"No trained model found for map '{map_name}'."
+        ok = await self.load_map(map_name)
+        if not ok:
+            return False, f"Map '{map_name}' not found."
+        self.sim["model_name"] = model_name
+        await self.start_run()
+        return True, ""
+
+    async def run_trained_model(self, model_name: str) -> tuple[bool, str]:
+        if not model_name:
+            return False, "Select a trained model."
+        ok, err = await self.load_model(model_name)
+        if not ok:
+            return False, err
+        await self.start_run()
+        return True, ""
+
     async def start_run(self) -> None:
         self.cancel_task()
 
@@ -424,6 +487,11 @@ class SimulationManager:
             "mode":       "idle",
         })
         await self.broadcast(self.step_payload())
+
+    async def stop_and_save(self, model_name: str) -> str:
+        saved_name = self.save_model(model_name)
+        await self.stop_simulation()
+        return saved_name
 
     async def pause_simulation(self) -> None:
         current_mode = self.sim["mode"]

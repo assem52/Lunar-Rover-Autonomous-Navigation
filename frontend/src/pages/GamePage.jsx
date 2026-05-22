@@ -6,8 +6,6 @@ export default function GamePage({
   hostRef,
   status,
   mode,
-  maps,
-  selectedMap,
   showTrail,
   speedText,
   onMenu,
@@ -16,9 +14,7 @@ export default function GamePage({
   onStop,
   onPause,
   onResume,
-  onNewMap,
   onToggleTrail,
-  onLoadMap,
   onSpeed,
   connected
 }) {
@@ -29,8 +25,6 @@ export default function GamePage({
         <StatusToast kind={status.kind} message={status.message} />
         <FloatingControls
           mode={mode}
-          maps={maps}
-          selectedMap={selectedMap}
           showTrail={showTrail}
           speedLabelText={speedText}
           onMenu={onMenu}
@@ -39,9 +33,7 @@ export default function GamePage({
           onStop={onStop}
           onPause={onPause}
           onResume={onResume}
-          onNewMap={onNewMap}
           onToggleTrail={onToggleTrail}
-          onLoadMap={onLoadMap}
           onSpeed={onSpeed}
         />
         <ConnectionOverlay connected={connected} />
