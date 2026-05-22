@@ -11,12 +11,10 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ---------------------------------------------------------------------------
-# Command handlers — add new actions here without touching ws_endpoint()
-# ---------------------------------------------------------------------------
 
 async def _handle_train(cmd):
     await manager.start_training()
+
 
 async def _handle_train_new_map(cmd):
     exploration = cmd.get('exploration')
@@ -24,14 +22,10 @@ async def _handle_train_new_map(cmd):
     map_name = await manager.train_on_new_map(exploration=exploration, exploitation=exploitation)
     await manager.emit_event('info', message=f"Training started on new map: {map_name}")
 
+
 async def _handle_run(cmd):
     await manager.start_run()
 
-async def _handle_run_trained_map(cmd):
-    name = cmd.get('name')
-    ok, err = await manager.run_trained_map(name)
-    if not ok:
-        await manager.emit_event('error', message=err)
 
 async def _handle_run_trained_model(cmd):
     name = cmd.get('name')
@@ -39,8 +33,10 @@ async def _handle_run_trained_model(cmd):
     if not ok:
         await manager.emit_event('error', message=err)
 
+
 async def _handle_stop(cmd):
     await manager.stop_simulation()
+
 
 async def _handle_stop_and_save(cmd):
     name = cmd.get('name')
@@ -50,11 +46,14 @@ async def _handle_stop_and_save(cmd):
     saved_name = await manager.stop_and_save(name)
     await manager.emit_event('saved', model_name=saved_name, models=manager.sim.get('models', []))
 
+
 async def _handle_pause(cmd):
     await manager.pause_simulation()
 
+
 async def _handle_resume(cmd):
     await manager.resume_simulation()
+
 
 async def _handle_save(cmd):
     name = cmd.get('name', manager.sim['model_name'])
@@ -69,6 +68,7 @@ async def _handle_save(cmd):
         model_name=saved_name,
     )
 
+
 async def _handle_load_model(cmd):
     name = cmd.get('name')
     if not name:
@@ -80,22 +80,13 @@ async def _handle_load_model(cmd):
     else:
         await manager.broadcast(manager.static_payload())
 
+
 async def _handle_new_map(cmd):
     manager.cancel_task()
     map_name = await manager.create_new_map()
     await manager.broadcast(manager.static_payload())
     await manager.emit_event('info', message=f"New map created: {map_name}")
 
-async def _handle_load_map(cmd):
-    name = cmd.get('name')
-    if not name:
-        await manager.emit_event('error', message='Select a map to load.')
-        return
-    ok = await manager.load_map(name)
-    if not ok:
-        await manager.emit_event('error', message=f"Map '{name}' not found.")
-    else:
-        await manager.broadcast(manager.static_payload())
 
 async def _handle_set_speed(cmd):
     try:
@@ -104,42 +95,26 @@ async def _handle_set_speed(cmd):
     except Exception:
         await manager.emit_event('error', message='Invalid speed value.')
 
-async def _handle_set_personality(cmd):
-    name = cmd.get('name')
-    if not name:
-        await manager.emit_event('error', message='Personality name cannot be empty.')
-        return
-    if manager.set_personality(name):
-        await manager.broadcast(manager.static_payload())
-        await manager.emit_event('info', message=f"Personality changed to: {name.capitalize()}")
-    else:
-        await manager.emit_event('error', message=f"Unknown personality: {name}")
 
-
-# Canonical action name → handler (aliases handled separately below)
 _HANDLERS = {
-    'train':           _handle_train,
-    'train_new_map':   _handle_train_new_map,
-    'start_training':  _handle_train,
-    'run':             _handle_run,
-    'start_run':       _handle_run,
-    'run_trained_map': _handle_run_trained_map,
+    'train': _handle_train,
+    'train_new_map': _handle_train_new_map,
+    'start_training': _handle_train,
+    'run': _handle_run,
+    'start_run': _handle_run,
     'run_trained_model': _handle_run_trained_model,
-    'stop':            _handle_stop,
-    'stop_and_save':   _handle_stop_and_save,
+    'stop': _handle_stop,
+    'stop_and_save': _handle_stop_and_save,
     'stop_simulation': _handle_stop,
-    'end':             _handle_stop,
-    'pause':           _handle_pause,
-    'resume':          _handle_resume,
-    'save':            _handle_save,
-    'load_model':      _handle_load_model,
-    'new_map':         _handle_new_map,
-    'load_map':        _handle_load_map,
-    'set_speed':       _handle_set_speed,
-    'set_personality': _handle_set_personality,
+    'end': _handle_stop,
+    'pause': _handle_pause,
+    'resume': _handle_resume,
+    'save': _handle_save,
+    'load_model': _handle_load_model,
+    'new_map': _handle_new_map,
+    'set_speed': _handle_set_speed,
 }
 
-# Actions that must not fire in the first 1.5 s after connection
 _AUTOSTART_GUARD = frozenset({'train', 'start_training', 'run', 'start_run'})
 
 
@@ -161,19 +136,18 @@ async def ws_endpoint(ws: WebSocket):
             if not action:
                 continue
 
-            log.debug("WebSocket action received: %s", action)
+            log.debug('WebSocket action received: %s', action)
 
-            # Safety guard: ignore auto-start commands right after connection
             if action in _AUTOSTART_GUARD:
                 if asyncio.get_event_loop().time() - connection_time < 1.5:
-                    log.warning("Blocked potential auto-start action: %s", action)
+                    log.warning('Blocked potential auto-start action: %s', action)
                     continue
 
             handler = _HANDLERS.get(action)
             if handler:
                 await handler(cmd)
             else:
-                await manager.emit_event('error', message=f"Unknown action: {action}")
+                await manager.emit_event('error', message=f'Unknown action: {action}')
 
     except WebSocketDisconnect:
         if ws in manager.clients:
@@ -181,5 +155,3 @@ async def ws_endpoint(ws: WebSocket):
         if len(manager.clients) == 0:
             if manager.sim['mode'] in ('training', 'running'):
                 await manager.pause_simulation()
-
-

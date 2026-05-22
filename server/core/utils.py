@@ -1,6 +1,4 @@
-import glob
 import json
-import os
 from typing import Any
 
 
@@ -13,11 +11,6 @@ def extract_terrain(grid):
             elif grid[i, j] == 2:
                 rocks.append([j, i])
     return craters, rocks
-
-
-def get_available_models(models_dir: str):
-    files = glob.glob(os.path.join(models_dir, "*.json"))
-    return [os.path.basename(f).replace('.json', '') for f in files]
 
 
 def json_text(data: dict[str, Any]) -> str:

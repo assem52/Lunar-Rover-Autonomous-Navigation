@@ -13,13 +13,10 @@ stays in charge of the WebSocket layer.
 from __future__ import annotations
 
 import asyncio
-import logging
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Coroutine
 
 if TYPE_CHECKING:
     from server.core.simulation_manager import SimulationManager
-
-log = logging.getLogger(__name__)
 
 
 class SimRunner:

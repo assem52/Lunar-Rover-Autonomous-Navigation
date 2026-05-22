@@ -4,7 +4,7 @@ SimulationManager — orchestrates the rover simulation.
 Responsibilities:
 - Owns the environment, agent, map/model stores, and WebSocket clients.
 - Manages simulation state (``self.sim`` dict).
-- Handles map/model loading, saving, and personality switching.
+- Handles map/model loading and saving.
 - Delegates the actual training and run loops to ``SimRunner``.
 
 What it does NOT do:
@@ -23,8 +23,8 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from ai import QLearningAgent
-from envs.lunar_rover import LunarRoverEnv
+from ai.q_learning import QLearningAgent
+from ai.envs.lunar_rover import LunarRoverEnv
 from server import settings
 from server.core.runner import SimRunner
 from server.core.stores import MapStore, ModelStore
@@ -50,7 +50,7 @@ class SimulationManager:
         )
         self.agent = QLearningAgent(
             action_size=self.env.action_space.n,
-            personality=getattr(settings, "DEFAULT_PERSONALITY", "explorer"),
+            personality="manual",
         )
         self.model_store = ModelStore(settings.MODELS_DIR)
         self.map_store   = MapStore(settings.MAPS_DIR)
@@ -70,8 +70,6 @@ class SimulationManager:
             "trained_eps":            0,
             "last_outcome":           "",
             "model_name":             settings.DEFAULT_MODEL_NAME,
-            "personality":            self.agent.personality_name,
-            "available_personalities": list(QLearningAgent.PERSONALITIES.keys()),
             "map_name":               "",
             "reward_history":         [],
             "perf": {
@@ -84,9 +82,6 @@ class SimulationManager:
         # WebSocket clients + async task handle
         self.clients: list[WebSocket] = []
         self.task:    asyncio.Task | None = None
-
-        # Training tracker
-        self.best_reward: float = -float("inf")
 
         # Performance counters (for broadcast rate metrics)
         self._perf = {
@@ -110,7 +105,7 @@ class SimulationManager:
             first_map = map_names[0]
             map_data  = self.map_store.load(first_map)
             if map_data:
-                self.env.set_terrain(map_data["target"], map_data["start"], map_data["grid"])
+                self.env.set_terrain(map_data["target"], map_data["grid"])
                 self.sim["map_name"] = first_map
                 model_name = f"{first_map}_model"
                 path = self.model_store.path_for(model_name)
@@ -206,8 +201,6 @@ class SimulationManager:
             "trained_eps":             self.sim["trained_eps"],
             "last_outcome":            self.sim["last_outcome"],
             "model_name":              self.sim["model_name"],
-            "personality":             self.sim["personality"],
-            "available_personalities": self.sim["available_personalities"],
             "reward_history":          self.sim["reward_history"],
             "map_name":                self.sim.get("map_name", ""),
             "models":                  self.sim.get("models", []),
@@ -304,38 +297,8 @@ class SimulationManager:
             "episode":    0,
             "reward_history": [],
         })
-        self.best_reward = -float("inf")
         await self.sync_state_initial()
         return name
-
-    async def load_map(self, map_name: str) -> bool:
-        map_data = self.map_store.load(map_name)
-        if not map_data:
-            return False
-        self.cancel_task()
-        self.env.set_terrain(map_data["target"], map_data["start"], map_data["grid"])
-
-        model_name = f"{map_name}_model"
-        path = self.model_store.path_for(model_name)
-        if os.path.exists(path):
-            self.agent.load(path)
-            self.best_reward = -500.0  # conservative so new improvements are saved
-            self.sim["trained_eps"] = getattr(self.agent, "trained_eps", 0)
-            self.sim["episode"] = self.sim["trained_eps"]
-            self.sim["reward_history"] = getattr(self.agent, "reward_history", [])
-        else:
-            self.agent.reset_memory()
-            self.best_reward = -float("inf")
-            self.sim["trained_eps"] = 0
-            self.sim["episode"] = 0
-            self.sim["reward_history"] = []
-
-        self.sim.update({
-            "map_name":    map_name,
-            "model_name":  model_name,
-        })
-        await self.sync_state_initial()
-        return True
 
     # ------------------------------------------------------------------
     # Model management
@@ -369,7 +332,7 @@ class SimulationManager:
         self.cancel_task()
         map_data = getattr(self.agent, "map_data", None)
         if map_data and isinstance(map_data, dict) and {"target", "start", "grid"}.issubset(map_data.keys()):
-            self.env.set_terrain(map_data["target"], map_data["start"], map_data["grid"])
+            self.env.set_terrain(map_data["target"], map_data["grid"])
             if map_data.get("map_name"):
                 self.sim["map_name"] = map_data["map_name"]
         self.sim.update({
@@ -384,19 +347,6 @@ class SimulationManager:
     # ------------------------------------------------------------------
     # Settings
     # ------------------------------------------------------------------
-
-    def set_personality(self, name: str) -> bool:
-        if name not in QLearningAgent.PERSONALITIES:
-            return False
-        self.cancel_task()
-        self.agent = QLearningAgent(action_size=self.env.action_space.n, personality=name)
-        self.sim.update({
-            "personality":  name,
-            "epsilon":      self.agent.epsilon,
-            "trained_eps":  0,
-            "reward_history": [],
-        })
-        return True
 
     def set_speed(self, value: float) -> float:
         self.sim["speed"] = clamp_speed(float(value))
@@ -434,19 +384,6 @@ class SimulationManager:
         self.set_training_balance(exploration=exploration, exploitation=exploitation)
         await self.start_training()
         return map_name
-
-    async def run_trained_map(self, map_name: str) -> tuple[bool, str]:
-        if not map_name:
-            return False, "Select a trained map."
-        model_name = f"{map_name}_model"
-        if model_name not in self.model_store.list_names():
-            return False, f"No trained model found for map '{map_name}'."
-        ok = await self.load_map(map_name)
-        if not ok:
-            return False, f"Map '{map_name}' not found."
-        self.sim["model_name"] = model_name
-        await self.start_run()
-        return True, ""
 
     async def run_trained_model(self, model_name: str) -> tuple[bool, str]:
         if not model_name:
