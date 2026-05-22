@@ -1,43 +1,50 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import TopBar from './components/TopBar'
-import MissionMenu from './components/MissionMenu'
-import FloatingControls from './components/FloatingControls'
-import HudPanel from './components/HudPanel'
-import RewardChart from './components/RewardChart'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ConnectionOverlay from './components/ConnectionOverlay'
-import StatusToast from './components/StatusToast'
+import GameMenuPage from './pages/GameMenuPage'
+import GamePage from './pages/GamePage'
 import { usePixiRenderer } from './hooks/usePixiRenderer'
 import { useSimulationSocket } from './hooks/useSimulationSocket'
-import { speedLabel } from './lib/constants'
+import { GRID_SIZE, speedLabel } from './lib/constants'
 
 export default function App() {
   const hostRef = useRef(null)
-  const rendererRef = usePixiRenderer(hostRef)
+  const resolvePageFromPath = useCallback(() => {
+    const raw = window.location.pathname.replace(/^\/+/, '')
+    const normalized = raw.endsWith('/') ? raw : `${raw}/`
+    return normalized === 'Ai/' ? 'game' : 'menu'
+  }, [])
+  const [page, setPage] = useState(resolvePageFromPath)
+  const rendererRef = usePixiRenderer(hostRef, page === 'game')
 
-  const [showMenu, setShowMenu] = useState(true)
   const [showTrail, setShowTrail] = useState(true)
   const [mode, setMode] = useState('idle')
-  const [modelName, setModelName] = useState('')
   const [models, setModels] = useState([])
   const [maps, setMaps] = useState([])
-  const [rewards, setRewards] = useState([])
-  const [fps, setFps] = useState('-')
-  const [wsStats, setWsStats] = useState({ kb: 0, msg: 0 })
-  const [state, setState] = useState({ episode: 0, trained_eps: 0, total_reward: 0, step: 0, epsilon: 1, last_outcome: '-', rover_pos: [0, 0], target_pos: [0, 0] })
-  const [success, setSuccess] = useState({ total: 0, wins: 0 })
+  const [state, setState] = useState({ rover_pos: [0, GRID_SIZE - 1], target_pos: [-1, -1] })
   const [speedText, setSpeedText] = useState('Normal')
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedMap, setSelectedMap] = useState('')
   const [status, setStatus] = useState({ kind: 'info', message: '' })
 
   const trailRef = useRef([])
-  const lastEpisodeRef = useRef(-1)
-  const fpsRef = useRef({ frames: 0, start: performance.now() })
   const speedTimeoutRef = useRef(null)
+
+  useEffect(() => {
+    const onPathChange = () => setPage(resolvePageFromPath())
+    window.addEventListener('popstate', onPathChange)
+    return () => window.removeEventListener('popstate', onPathChange)
+  }, [resolvePageFromPath])
+
+  const navigateTo = useCallback((nextPage) => {
+    const nextPath = nextPage === 'game' ? '/Ai/' : '/AiMenu/'
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath)
+    }
+    setPage(nextPage)
+  }, [])
 
   const onState = useCallback((s) => {
     if (s.__event === 'saved') {
-      if (s.models) setModels(s.models)
       setStatus({ kind: 'info', message: `Model saved: ${s.model_name || ''}` })
       return
     }
@@ -65,35 +72,14 @@ export default function App() {
     }
     if (s.models) setModels(s.models)
     if (s.maps) setMaps(s.maps)
-    if (s.model_name) {
-      setModelName(s.model_name)
-      setSelectedModel(s.model_name)
-    }
+    if (s.model_name) setSelectedModel(s.model_name)
     if (s.map_name) setSelectedMap(s.map_name)
-    if (s.perf) setWsStats({ kb: s.perf.ws_kb_per_sec || 0, msg: s.perf.ws_msgs_per_sec || 0 })
-    if (s.reward_history) {
-      const startEp = Math.max(0, s.trained_eps - s.reward_history.length)
-      const hist = s.reward_history.map((reward, idx) => ({ episode: startEp + idx, reward }))
-      setRewards(hist)
-    }
     setState((prev) => ({ ...prev, ...s }))
 
     if (s.craters && s.rocks && rendererRef.current) {
       rendererRef.current.drawTerrain(s.craters, s.rocks)
     }
 
-    if (s.episode !== undefined && s.episode !== lastEpisodeRef.current) {
-      if (lastEpisodeRef.current >= 0 && s.total_reward !== undefined && s.episode > 0) {
-        setRewards((prev) => [...prev.slice(-119), { episode: lastEpisodeRef.current, reward: s.total_reward }])
-        setSuccess((prev) => ({ total: prev.total + 1, wins: prev.wins + (s.last_outcome === 'success' ? 1 : 0) }))
-      }
-      if (s.episode === 0) {
-        setRewards([])
-        setSuccess({ total: 0, wins: 0 })
-      }
-      lastEpisodeRef.current = s.episode
-    }
-    
     if (s.step === 0) {
       trailRef.current = []
       if (rendererRef.current) rendererRef.current.updateTrail([], s.mode, showTrail)
@@ -112,16 +98,7 @@ export default function App() {
         }
       }
     }
-
-    fpsRef.current.frames += 1
-    const now = performance.now()
-    if (now - fpsRef.current.start > 500) {
-      const value = (fpsRef.current.frames * 1000) / (now - fpsRef.current.start)
-      setFps(value.toFixed(1))
-      fpsRef.current.frames = 0
-      fpsRef.current.start = now
-    }
-  }, [mode, rendererRef, showTrail])
+  }, [rendererRef, showTrail])
 
   const { connected, send } = useSimulationSocket(onState)
 
@@ -137,107 +114,85 @@ export default function App() {
     return ok
   }, [send])
 
-  const successRate = useMemo(() => {
-    if (success.total === 0) return '-'
-    return `${Math.round((success.wins / success.total) * 100)}%`
-  }, [success])
-
   function start(action) {
-    setShowMenu(false)
+    navigateTo('game')
     if (action) safeSend({ action })
   }
 
+  // Ensure terrain/actors are visible when entering the game page.
   useEffect(() => {
-    if (state.mode && state.mode !== 'idle' && showMenu) {
-      setShowMenu(false)
-    }
-  }, [state.mode, showMenu])
-
-  // Fix: Redraw terrain and actors when the renderer becomes ready
-  useEffect(() => {
-    if (rendererRef.current && state.craters && state.rocks) {
-      rendererRef.current.drawTerrain(state.craters, state.rocks)
+    if (page !== 'game' || !rendererRef.current) return
+    rendererRef.current.drawTerrain(state.craters || [], state.rocks || [])
+    if (state.rover_pos && state.target_pos) {
       rendererRef.current.drawActors(state.rover_pos, state.target_pos)
     }
-  }, [rendererRef.current, state.craters, state.rocks, state.rover_pos, state.target_pos])
+  }, [page, rendererRef, state.craters, state.rocks, state.rover_pos, state.target_pos])
+
+  if (page === 'menu') {
+    return (
+      <>
+        <GameMenuPage
+          models={models}
+          selectedModel={selectedModel}
+          maps={maps}
+          selectedMap={selectedMap}
+          onSelectModel={(name) => {
+            setSelectedModel(name)
+            if (name) safeSend({ action: 'load_model', name })
+          }}
+          onSelectMap={(name) => {
+            setSelectedMap(name)
+            if (name) safeSend({ action: 'load_map', name })
+          }}
+          onTrain={() => start('train')}
+          onRun={() => start('run')}
+          onNewMap={() => {
+            safeSend({ action: 'new_map' })
+            start()
+          }}
+          onOpen={() => start()}
+        />
+        <ConnectionOverlay connected={connected} />
+      </>
+    )
+  }
 
   return (
-    <>
-      <TopBar
-        mode={mode}
-        episode={state.episode ?? 0}
-        trained={state.trained_eps ?? 0}
-        reward={Number(state.total_reward ?? 0).toFixed(1)}
-        successRate={successRate}
-      />
-
-      <div id="main">
-        <div id="vp">
-          <div id="pixi-host" ref={hostRef} />
-          <RewardChart rewards={rewards} />
-          <HudPanel
-            roverPos={state.rover_pos}
-            targetPos={state.target_pos}
-            fps={fps}
-            wsIn={`${wsStats.kb.toFixed(1)} KB/s | ${wsStats.msg.toFixed(1)} msg/s`}
-          />
-          <StatusToast kind={status.kind} message={status.message} />
-
-          {!showMenu && (
-            <FloatingControls
-              mode={mode}
-              step={state.step ?? 0}
-              epsilon={Number(state.epsilon ?? 0).toFixed(3)}
-              outcome={state.last_outcome || '-'}
-              maps={maps}
-              selectedMap={selectedMap}
-              showTrail={showTrail}
-              speedLabelText={speedText}
-              personality={state.personality || 'explorer'}
-              availablePersonalities={state.available_personalities || []}
-              onTrain={() => safeSend({ action: 'train' })}
-              onRun={() => safeSend({ action: 'run' })}
-              onStop={() => safeSend({ action: 'stop' })}
-              onPause={() => safeSend({ action: 'pause' })}
-              onResume={() => safeSend({ action: 'resume' })}
-              onNewMap={() => safeSend({ action: 'new_map' })}
-              onToggleTrail={() => {
-                const next = !showTrail
-                setShowTrail(next)
-                if (rendererRef.current) rendererRef.current.updateTrail(trailRef.current, mode, next)
-              }}
-              onLoadMap={(name) => {
-                setSelectedMap(name)
-                safeSend({ action: 'load_map', name })
-              }}
-              onPersonality={(name) => {
-                safeSend({ action: 'set_personality', name })
-              }}
-              onSpeed={(v) => {
-                setSpeedText(speedLabel(v))
-                if (speedTimeoutRef.current) clearTimeout(speedTimeoutRef.current)
-                speedTimeoutRef.current = setTimeout(() => {
-                  safeSend({ action: 'set_speed', value: v })
-                }, 100)
-              }}
-            />
-          )}
-
-          {showMenu && (
-            <MissionMenu
-              onTrain={() => start('train')}
-              onRun={() => start('run')}
-              onNewMap={() => {
-                safeSend({ action: 'new_map' })
-                start()
-              }}
-              onOpen={() => start()}
-            />
-          )}
-
-          <ConnectionOverlay connected={connected} />
-        </div>
-      </div>
-    </>
+    <GamePage
+      hostRef={hostRef}
+      status={status}
+      mode={mode}
+      maps={maps}
+      selectedMap={selectedMap}
+      showTrail={showTrail}
+      speedText={speedText}
+      onMenu={() => {
+        safeSend({ action: 'stop' })
+        navigateTo('menu')
+      }}
+      onTrain={() => safeSend({ action: 'train' })}
+      onRun={() => safeSend({ action: 'run' })}
+      onStop={() => safeSend({ action: 'stop' })}
+      onPause={() => safeSend({ action: 'pause' })}
+      onResume={() => safeSend({ action: 'resume' })}
+      onNewMap={() => safeSend({ action: 'new_map' })}
+      onToggleTrail={() => {
+        const next = !showTrail
+        setShowTrail(next)
+        if (rendererRef.current) rendererRef.current.updateTrail(trailRef.current, mode, next)
+      }}
+      onLoadMap={(name) => {
+        setSelectedMap(name)
+        safeSend({ action: 'load_map', name })
+      }}
+      onSpeed={(v) => {
+        setSpeedText(speedLabel(v))
+        if (speedTimeoutRef.current) clearTimeout(speedTimeoutRef.current)
+        speedTimeoutRef.current = setTimeout(() => {
+          safeSend({ action: 'set_speed', value: v })
+        }, 100)
+      }}
+      connected={connected}
+    />
   )
 }

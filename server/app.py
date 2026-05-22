@@ -1,6 +1,7 @@
 import threading
 import webbrowser
 import time
+import os
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
@@ -50,6 +51,8 @@ def state():
 @app.on_event('startup')
 async def on_startup():
     setup_logging()
+    if os.getenv('DISABLE_SERVER_BROWSER_OPEN') == '1':
+        return
 
     def _open():
         time.sleep(1.5)

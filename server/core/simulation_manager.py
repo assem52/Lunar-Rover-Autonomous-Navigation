@@ -384,19 +384,24 @@ class SimulationManager:
     async def start_run(self) -> None:
         self.cancel_task()
 
-        # Auto-load model for the active map
-        map_name = self.sim.get("map_name")
-        if map_name:
-            model_name = f"{map_name}_model"
-            path = self.model_store.path_for(model_name)
-            if os.path.exists(path):
-                self.agent.load(path)
-                await self.emit_event("info", message=f"Loaded training data for {map_name}")
-            else:
-                await self.emit_event(
-                    "info",
-                    message=f"No saved data for {map_name}. Running with current brain.",
-                )
+        # Load the selected model first. Fall back to the active-map model.
+        selected_model = self.sim.get("model_name", "")
+        map_name = self.sim.get("map_name", "")
+        map_model_name = f"{map_name}_model" if map_name else ""
+
+        candidate_names = [n for n in (selected_model, map_model_name) if n]
+        loaded_name = ""
+        for candidate in candidate_names:
+            path = self.model_store.path_for(candidate)
+            if os.path.exists(path) and self.agent.load(path):
+                loaded_name = candidate
+                self.sim["model_name"] = candidate
+                break
+
+        if loaded_name:
+            await self.emit_event("info", message=f"Loaded model: {loaded_name}")
+        else:
+            await self.emit_event("info", message="No saved model found. Running with current brain.")
 
         self.env.reset()
         self.sim.update({

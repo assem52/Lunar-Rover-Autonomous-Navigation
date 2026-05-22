@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { GRID_SIZE, loadServerConfig } from '../lib/constants'
 
-export function usePixiRenderer(hostRef) {
+export function usePixiRenderer(hostRef, active = true) {
   const apiRef = useRef(null)
 
   useEffect(() => {
+    if (!active) return
     if (!hostRef.current) return
 
     let disposed = false
@@ -372,6 +373,11 @@ export function usePixiRenderer(hostRef) {
         toPixel,
       }
 
+      // Ensure rover is visible at START immediately on page load,
+      // even before the first websocket state arrives.
+      apiRef.current.drawTerrain([], [])
+      apiRef.current.drawActors([0, GRID_SIZE - 1], [-1, -1])
+
       cleanup = () => {
         window.removeEventListener('resize', resize)
         app.destroy(true, true)
@@ -383,7 +389,7 @@ export function usePixiRenderer(hostRef) {
       if (cleanup) cleanup()
       apiRef.current = null
     }
-  }, [hostRef])
+  }, [hostRef, active])
 
   return apiRef
 }

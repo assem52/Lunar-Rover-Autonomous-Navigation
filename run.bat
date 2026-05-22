@@ -1,31 +1,36 @@
 @echo off
-title Lunar Rover — AI Mission Control
+set PYTHONDONTWRITEBYTECODE=1
+set DISABLE_SERVER_BROWSER_OPEN=1
+title Lunar Rover - Live Dev
 color 0B
 cls
 
 echo.
 echo  ============================================================
-echo    LUNAR ROVER  ^|  AI Mission Control System
-echo    Powered by: Gymnasium + Q-Learning + Three.js
+echo    LUNAR ROVER ^| LIVE DEV MODE
+echo    Frontend: Vite (hot reload) ^| Backend: FastAPI
 echo  ============================================================
 echo.
-echo  [*] Checking dependencies...
+echo  [*] Checking Python dependencies...
 python -c "import fastapi, uvicorn, websockets, gymnasium, numpy" 2>nul
 if %errorlevel% neq 0 (
-    echo  [!] Installing required packages...
+    echo  [!] Installing required Python packages...
     pip install fastapi "uvicorn[standard]" websockets gymnasium numpy pygame -q
 )
-echo  [+] Dependencies OK
+echo  [+] Python dependencies OK
 echo.
-echo  [*] Starting Mission Control Server on port 8000...
-echo  [*] Browser will open automatically in 2 seconds...
+echo  [*] Starting backend on 127.0.0.1:8000...
+echo  [*] Starting frontend live on 127.0.0.1:5173...
 echo.
 echo  ============================================================
-echo    To stop: Press Ctrl+C in this window
+echo    Open: http://127.0.0.1:5173/AiMenu/
 echo  ============================================================
 echo.
 
 cd /d "%~dp0"
-python -m uvicorn server.app:app --host 127.0.0.1 --port 8000 --log-level warning
+start "Lunar Rover Backend" cmd /k "cd /d %~dp0 && python -m uvicorn server.app:app --host 127.0.0.1 --port 8000 --log-level warning"
+start "Lunar Rover Frontend" cmd /k "cd /d %~dp0frontend && npm run dev -- --host 127.0.0.1 --port 5173"
+timeout /t 2 >nul
+start "" "http://127.0.0.1:5173/AiMenu/"
 
 pause
