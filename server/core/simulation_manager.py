@@ -23,8 +23,8 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from ai.q_learning import QLearningAgent
-from ai.envs.lunar_rover import LunarRoverEnv
+from ai import QLearningAgent
+from envs.lunar_rover import LunarRoverEnv
 from server import settings
 from server.core.runner import SimRunner
 from server.core.stores import MapStore, ModelStore
@@ -105,7 +105,7 @@ class SimulationManager:
             first_map = map_names[0]
             map_data  = self.map_store.load(first_map)
             if map_data:
-                self.env.set_terrain(map_data["target"], map_data["grid"])
+                self.env.set_terrain(map_data["target"], map_data["start"], map_data["grid"])
                 self.sim["map_name"] = first_map
                 model_name = f"{first_map}_model"
                 path = self.model_store.path_for(model_name)
@@ -332,7 +332,7 @@ class SimulationManager:
         self.cancel_task()
         map_data = getattr(self.agent, "map_data", None)
         if map_data and isinstance(map_data, dict) and {"target", "start", "grid"}.issubset(map_data.keys()):
-            self.env.set_terrain(map_data["target"], map_data["grid"])
+            self.env.set_terrain(map_data["target"], map_data["start"], map_data["grid"])
             if map_data.get("map_name"):
                 self.sim["map_name"] = map_data["map_name"]
         self.sim.update({

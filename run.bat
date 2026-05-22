@@ -13,9 +13,9 @@ echo  ============================================================
 echo.
 echo  [*] Checking Python dependencies...
 python -c "import fastapi, uvicorn, websockets, gymnasium, numpy" 2>nul
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo  [!] Installing required Python packages...
-    pip install fastapi "uvicorn[standard]" websockets gymnasium numpy pygame -q
+    python -m pip install fastapi "uvicorn[standard]" websockets gymnasium numpy
 )
 echo  [+] Python dependencies OK
 echo.
@@ -30,7 +30,7 @@ echo.
 cd /d "%~dp0"
 start "Lunar Rover Backend" cmd /k "cd /d %~dp0 && python -m uvicorn server.app:app --host 127.0.0.1 --port 8000 --log-level warning"
 start "Lunar Rover Frontend" cmd /k "cd /d %~dp0frontend && npm run dev -- --host 127.0.0.1 --port 5173"
-timeout /t 2 >nul
+ping 127.0.0.1 -n 3 >nul
 start "" "http://127.0.0.1:5173/AiMenu/"
 
 pause

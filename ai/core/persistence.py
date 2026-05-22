@@ -27,7 +27,7 @@ def save_q_table(filepath: str, q_table, epsilon: float, map_data: dict[str, Any
 
 def load_q_table(filepath: str, action_size: int):
     if not os.path.exists(filepath):
-        return build_q_table(action_size), None, None
+        return build_q_table(action_size), None, None, 0, []
 
     with open(filepath, 'r', encoding='utf-8') as f:
         data = json.load(f)
